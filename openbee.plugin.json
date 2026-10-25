@@ -1,0 +1,69 @@
+{
+  "protocol_version": 1,
+  "id": "dingtalk",
+  "name": { "en": "DingTalk", "zh": "钉钉" },
+  "description": { "en": "DingTalk bot channel", "zh": "钉钉机器人渠道" },
+  "command": ["node", "dist/index.js"],
+  "config": [
+    {
+      "key": "client_id",
+      "type": "string",
+      "required": true,
+      "label": { "en": "Client ID (AppKey)", "zh": "Client ID（AppKey）" },
+      "help": {
+        "en": "From the DingTalk developer console: your app → Credentials & Basic Info",
+        "zh": "在钉钉开发者后台：应用 → 凭证与基础信息 中获取"
+      }
+    },
+    {
+      "key": "client_secret",
+      "type": "secret",
+      "required": true,
+      "label": { "en": "Client Secret (AppSecret)", "zh": "Client Secret（AppSecret）" },
+      "help": {
+        "en": "From the DingTalk developer console: your app → Credentials & Basic Info",
+        "zh": "在钉钉开发者后台：应用 → 凭证与基础信息 中获取"
+      }
+    },
+    {
+      "key": "ffprobe_path",
+      "type": "string",
+      "default": "ffprobe",
+      "label": { "en": "ffprobe path", "zh": "ffprobe 路径" },
+      "help": {
+        "en": "Reads the duration of voice and video files the bot sends; without it the duration is 0",
+        "zh": "用于读取机器人发送的语音和视频时长；不可用时时长为 0"
+      }
+    },
+    {
+      "key": "ffmpeg_path",
+      "type": "string",
+      "default": "ffmpeg",
+      "label": { "en": "ffmpeg path", "zh": "ffmpeg 路径" },
+      "help": {
+        "en": "Makes a thumbnail for videos the bot sends; without it videos are sent without one",
+        "zh": "用于生成机器人发送视频的缩略图；不可用时视频不带缩略图"
+      }
+    },
+    {
+      "key": "api_base_url",
+      "type": "string",
+      "default": "https://api.dingtalk.com",
+      "label": { "en": "DingTalk API server URL (advanced)", "zh": "钉钉 API 服务地址（高级）" },
+      "help": {
+        "en": "Change only for a reverse proxy or tests",
+        "zh": "仅在使用反向代理或测试时修改"
+      }
+    },
+    {
+      "key": "oapi_base_url",
+      "type": "string",
+      "default": "https://oapi.dingtalk.com",
+      "label": { "en": "DingTalk OAPI server URL (advanced)", "zh": "钉钉 OAPI 服务地址（高级）" },
+      "help": {
+        "en": "Used for media uploads; change only for a reverse proxy or tests",
+        "zh": "用于上传媒体文件；仅在使用反向代理或测试时修改"
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "name": "@theopenbee/channel-dingtalk",
+  "version": "0.1.0",
+  "description": "DingTalk channel plugin for openbee",
+  "keywords": [
+    "openbee",
+    "openbee-plugin",
+    "dingtalk"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theopenbee/channel-dingtalk.git"
+  },
+  "homepage": "https://github.com/theopenbee/channel-dingtalk#readme",
+  "bugs": {
+    "url": "https://github.com/theopenbee/channel-dingtalk/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "openbee.plugin.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@theopenbee/channel-sdk": "^0.2.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.7.0"
+  }
+}
