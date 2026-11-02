@@ -4,7 +4,7 @@ import { basename } from "node:path";
 
 import { ConfigError, type Attachment, type AttachmentType, type ChannelContext, type ChannelDefinition, type SendRequest } from "@theopenbee/channel-sdk";
 
-import { DEFAULT_API_BASE_URL, DEFAULT_OAPI_BASE_URL, DingTalkApi, DingTalkError, MAX_DOWNLOAD_SIZE } from "./api.js";
+import { DEFAULT_API_BASE_URL, DEFAULT_OAPI_BASE_URL, DingTalkApi, DingTalkError, MAX_DOWNLOAD_SIZE, isRetryableDownload } from "./api.js";
 import { audioDurationMs, extractFirstFrame, videoDurationSec, type Thumbnail } from "./ffmedia.js";
 import {
   PendingEmojis,
@@ -40,6 +40,7 @@ import type { ConversationTarget, DingTalkMediaType, JsonObject, MediaInfo } fro
 export const MAX_UPLOAD_SIZE = 20 * 1024 * 1024;
 export const MAX_VOICE_UPLOAD_SIZE = 2 * 1024 * 1024;
 
+const DOWNLOAD_ATTEMPTS = 3;
 const EMOJI_RETRY_WINDOW = 30_000;
 const EMOJI_REPLY_TIMEOUT = 5_000;
 const EMOJI_RECALL_TIMEOUT = 3_000;
@@ -122,8 +123,18 @@ export function createDingTalkChannel(): ChannelDefinition {
 
   const failed = (type: AttachmentType, name?: string): Attachment => (name ? { type, path: "", name } : { type, path: "" });
 
-  const save = async (ctx: ChannelContext, type: AttachmentType, url: string, ext: (contentType: string) => string, name?: string): Promise<Attachment> => {
-    const { data, contentType } = await api!.download(url, MAX_DOWNLOAD_SIZE, background.signal);
+  const save = async (
+    ctx: ChannelContext,
+    type: AttachmentType,
+    download: () => Promise<{ data: Buffer; contentType: string }>,
+    ext: (contentType: string) => string,
+    name?: string,
+  ): Promise<Attachment> => {
+    const { data, contentType } = await retryWithBackoff(download, DOWNLOAD_ATTEMPTS, RETRY_DELAY, background.signal, (err) => {
+      if (!isRetryableDownload(err)) return false;
+      ctx.log.warn(`download ${type} failed, retrying`, { error: errorText(err) });
+      return true;
+    });
     const path = await ctx.saveMedia(data, ext(contentType));
     return name ? { type, path, name } : { type, path };
   };
@@ -137,8 +148,8 @@ export function createDingTalkChannel(): ChannelDefinition {
   ): Promise<Attachment> => {
     if (!downloadCode) return failed(type, name);
     try {
-      const url = await api!.downloadUrl(downloadCode, background.signal);
-      return await save(ctx, type, url, ext, name);
+      const download = async () => api!.download(await api!.downloadUrl(downloadCode, background.signal), MAX_DOWNLOAD_SIZE, background.signal);
+      return await save(ctx, type, download, ext, name);
     } catch (err) {
       ctx.log.error(`download ${type} failed`, { error: errorText(err) });
       return failed(type, name);
@@ -147,7 +158,7 @@ export function createDingTalkChannel(): ChannelDefinition {
 
   const fetchByUrl = async (ctx: ChannelContext, url: string): Promise<Attachment> => {
     try {
-      return await save(ctx, "image", url, extensionFromMime);
+      return await save(ctx, "image", () => api!.download(url, MAX_DOWNLOAD_SIZE, background.signal), extensionFromMime);
     } catch (err) {
       ctx.log.error("download richtext image failed", { error: errorText(err) });
       return failed("image");

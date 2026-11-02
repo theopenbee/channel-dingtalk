@@ -279,7 +279,13 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-export async function retryWithBackoff<T>(fn: () => Promise<T>, attempts: number, baseDelay: number, signal?: AbortSignal): Promise<T> {
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  attempts: number,
+  baseDelay: number,
+  signal?: AbortSignal,
+  shouldRetry?: (err: unknown) => boolean,
+): Promise<T> {
   let delay = baseDelay;
   let lastError: unknown;
   for (let i = 0; i < Math.max(attempts, 1); i++) {
@@ -289,6 +295,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, attempts: number
       lastError = err;
     }
     if (i < attempts - 1) {
+      if (shouldRetry && !shouldRetry(lastError)) break;
       await sleep(delay, signal);
       delay *= 2;
     }

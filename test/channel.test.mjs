@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
+import { MAX_DOWNLOAD_SIZE } from "../dist/api.js";
 import { API_TOKEN, CLIENT_ID, CLIENT_SECRET, OAPI_TOKEN, startFakeDingTalk } from "./fake-dingtalk.mjs";
 import { fakeBinaries } from "./fakebin.mjs";
 
@@ -105,6 +106,8 @@ function message(fake, over = {}) {
   };
 }
 
+const PACKAGE_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+
 const inbound = (p, msgId) => p.waitFor((m) => m.method === "inbound" && m.params.message_id === msgId).then((m) => m.params);
 const logged = (p, text) => p.waitFor((m) => m.method === "log" && m.params.message === text);
 
@@ -188,7 +191,7 @@ test("startup connects the stream, answers pings and reconnects on disconnect", 
   const { p, res } = await initialized(t, fake, { ffprobe_path: "", ffmpeg_path: "" });
   assert.deepEqual(res.result, { protocol_version: 1 });
   const open = fake.calls.find((c) => c.path === "/v1.0/gateway/connections/open");
-  assert.match(open.body.ua, /^openbee-channel-dingtalk\/0\.1\.0$/);
+  assert.equal(open.body.ua, `openbee-channel-dingtalk/${PACKAGE_VERSION}`);
   const first = await fake.waitForConnection(1);
   assert.equal(first.ticket, "ticket+1/=");
 
@@ -574,4 +577,76 @@ test("shutdown closes the stream and exits", async (t) => {
   assert.ok(Date.now() - started < 2000);
   assert.equal(conn.closed, true);
   assert.equal(fake.connections.length, 1);
+});
+
+const picture = (fake, msgId, downloadCode) => message(fake, { msgId, msgtype: "picture", text: undefined, content: { downloadCode } });
+const callsTo = (fake, path) => fake.calls.filter((c) => c.path === path).length;
+const EXCHANGE = "/v1.0/robot/messageFiles/download";
+
+test("a failed download gets a new link and is retried until the file arrives", async (t) => {
+  let failures = 2;
+  const fake = await startFakeDingTalk({ "/files/flaky": () => (failures-- > 0 ? { status: 502, body: {} } : undefined) });
+  t.after(() => fake.close());
+  const { p } = await initialized(t, fake);
+  await fake.waitForConnection(1);
+  fake.addFile("flaky-code", "flaky", "PNGDATA", "image/png");
+  await fake.callback(picture(fake, "flaky", "flaky-code"));
+  const msg = await inbound(p, "flaky");
+  assert.equal(readFileSync(msg.attachments[0].path, "utf8"), "PNGDATA");
+  assert.equal(callsTo(fake, "/files/flaky"), 3);
+  assert.equal(callsTo(fake, EXCHANGE), 3);
+  const retries = p.messages.filter((m) => m.method === "log" && m.params.message === "download image failed, retrying");
+  assert.equal(retries.length, 2);
+  assert.equal(retries[0].params.level, "warn");
+  assertNoSecrets(p);
+});
+
+test("a rich text image link is retried", async (t) => {
+  let failures = 1;
+  const fake = await startFakeDingTalk({ "/files/direct": () => (failures-- > 0 ? { status: 500, body: {} } : undefined) });
+  t.after(() => fake.close());
+  const { p } = await initialized(t, fake);
+  await fake.waitForConnection(1);
+  const pictureUrl = fake.addFile("", "direct", "JPGDATA", "image/jpeg");
+  await fake.callback(message(fake, { msgId: "rich", msgtype: "richText", text: undefined, content: { richText: [{ pictureUrl, type: "picture" }] } }));
+  const msg = await inbound(p, "rich");
+  assert.equal(readFileSync(msg.attachments[0].path, "utf8"), "JPGDATA");
+  assert.equal(callsTo(fake, "/files/direct"), 2);
+});
+
+test("a throttled download code exchange is retried", async (t) => {
+  let limited = 1;
+  const fake = await startFakeDingTalk({ [EXCHANGE]: () => (limited-- > 0 ? { status: 429, body: { code: "throttled" } } : undefined) });
+  t.after(() => fake.close());
+  const { p } = await initialized(t, fake);
+  await fake.waitForConnection(1);
+  fake.addFile("code", "pic", "PNGDATA", "image/png");
+  await fake.callback(picture(fake, "throttled", "code"));
+  const msg = await inbound(p, "throttled");
+  assert.equal(readFileSync(msg.attachments[0].path, "utf8"), "PNGDATA");
+});
+
+test("a download that keeps failing stops after three attempts", async (t) => {
+  const fake = await startFakeDingTalk({ "/files/down": () => ({ status: 502, body: {} }) });
+  t.after(() => fake.close());
+  const { p } = await initialized(t, fake);
+  await fake.waitForConnection(1);
+  fake.addFile("down-code", "down", "PNGDATA", "image/png");
+  await fake.callback(picture(fake, "down", "down-code"));
+  assert.deepEqual((await inbound(p, "down")).attachments, [{ type: "image", path: "" }]);
+  assert.equal(callsTo(fake, "/files/down"), 3);
+});
+
+test("oversized files and rejected download codes are not retried", async (t) => {
+  const fake = await startFakeDingTalk();
+  t.after(() => fake.close());
+  const { p } = await initialized(t, fake);
+  await fake.waitForConnection(1);
+  fake.addFile("huge-code", "huge", Buffer.alloc(MAX_DOWNLOAD_SIZE + 1), "image/png");
+  await fake.callback(picture(fake, "huge", "huge-code"));
+  await fake.callback(picture(fake, "rejected", "nope"));
+  assert.deepEqual((await inbound(p, "huge")).attachments, [{ type: "image", path: "" }]);
+  assert.deepEqual((await inbound(p, "rejected")).attachments, [{ type: "image", path: "" }]);
+  assert.equal(callsTo(fake, "/files/huge"), 1);
+  assert.equal(fake.calls.filter((c) => c.path === EXCHANGE && c.body.downloadCode === "nope").length, 1);
 });

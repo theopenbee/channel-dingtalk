@@ -25,6 +25,18 @@ export class DingTalkError extends Error {
   }
 }
 
+export class DownloadTooLargeError extends Error {
+  constructor(maxSize: number) {
+    super(`download too large: exceeds ${maxSize} bytes`);
+    this.name = "DownloadTooLargeError";
+  }
+}
+
+export function isRetryableDownload(err: unknown): boolean {
+  if (err instanceof DownloadTooLargeError) return false;
+  return !(err instanceof DingTalkError && err.status >= 400 && err.status < 500 && err.status !== 429);
+}
+
 export interface ApiOptions {
   clientId: string;
   clientSecret: string;
@@ -215,7 +227,7 @@ export class DingTalkApi {
       await res.body?.cancel().catch(() => undefined);
       throw new Error(`download failed: HTTP ${res.status}`);
     }
-    const tooLarge = () => new Error(`download too large: exceeds ${maxSize} bytes`);
+    const tooLarge = () => new DownloadTooLargeError(maxSize);
     const declared = Number(res.headers.get("content-length") ?? "");
     if (Number.isFinite(declared) && declared > maxSize) {
       await res.body.cancel().catch(() => undefined);
